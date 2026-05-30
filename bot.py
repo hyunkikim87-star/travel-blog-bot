@@ -257,7 +257,7 @@ async def analyze_photos_with_vision(photos: list) -> list[str]:
     })
 
     response = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=500,
         messages=[{"role": "user", "content": content}]
     )
@@ -348,7 +348,7 @@ async def generate_blog_content(
 }}"""
 
     response = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=3000,
         messages=[{"role": "user", "content": prompt}]
     )
