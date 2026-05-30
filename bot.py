@@ -401,9 +401,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✈️ *여행 블로그 봇에 오신 걸 환영해요!*\n\n"
         "사용법:\n"
         "1️⃣ `/new 발리 여행 1일차` — 새 여행 글 시작\n"
-        "2️⃣ 사진을 여러 장 전송 (GPS 켜진 사진 권장)\n"
+        "2️⃣ 사진을 *파일로* 전송 (GPS 보존됨) ← 중요!\n"
+        "   📎 Telegram에서 첨부 → *파일로 보내기* 선택\n"
         "3️⃣ `/memo 오늘 유나가 처음 바다를 봤다` — 메모 추가 (선택)\n"
         "4️⃣ `/done` — 블로그 글 생성!\n\n"
+        "⚠️ 일반 사진 전송은 Telegram이 GPS를 제거합니다.\n"
         "📍 Places API로 장소 정보 자동 수집\n"
         "📸 대표 사진 2~3장 Vision 분석 포함",
         parse_mode="Markdown"
@@ -437,21 +439,7 @@ async def add_memo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📝 메모 저장됨: {memo}")
 
 
-async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    session = user_sessions[user_id]
-
-    if not session["waiting"]:
-        await update.message.reply_text(
-            "먼저 `/new 여행제목` 으로 새 여행을 시작해주세요!",
-            parse_mode="Markdown"
-        )
-        return
-
-    photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    image_bytes = bytes(await file.download_as_bytearray())
-
+async def _process_image(update: Update, image_bytes: bytes, session: dict):
     exif = get_exif_data(image_bytes)
     gps = get_gps_coordinates(exif)
     timestamp = get_photo_timestamp(exif)
@@ -469,6 +457,42 @@ async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "계속 보내거나 `/done` 으로 완료!",
         parse_mode="Markdown"
     )
+
+
+async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    session = user_sessions[user_id]
+
+    if not session["waiting"]:
+        await update.message.reply_text(
+            "먼저 `/new 여행제목` 으로 새 여행을 시작해주세요!",
+            parse_mode="Markdown"
+        )
+        return
+
+    # 일반 사진 전송은 Telegram이 EXIF를 제거함 — GPS 없음 가능성 높음
+    photo = update.message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    image_bytes = bytes(await file.download_as_bytearray())
+    await _process_image(update, image_bytes, session)
+
+
+async def receive_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """파일로 전송된 이미지 처리 — EXIF/GPS 원본 보존"""
+    user_id = update.effective_user.id
+    session = user_sessions[user_id]
+
+    if not session["waiting"]:
+        await update.message.reply_text(
+            "먼저 `/new 여행제목` 으로 새 여행을 시작해주세요!",
+            parse_mode="Markdown"
+        )
+        return
+
+    doc = update.message.document
+    file = await context.bot.get_file(doc.file_id)
+    image_bytes = bytes(await file.download_as_bytearray())
+    await _process_image(update, image_bytes, session)
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -587,6 +611,7 @@ def main():
     app.add_handler(CommandHandler("memo", add_memo))
     app.add_handler(CommandHandler("done", done))
     app.add_handler(MessageHandler(filters.PHOTO, receive_photo))
+    app.add_handler(MessageHandler(filters.Document.IMAGE, receive_document))
 
     logger.info("🚀 Travel Blog Bot 시작!")
     app.run_polling(drop_pending_updates=True)
